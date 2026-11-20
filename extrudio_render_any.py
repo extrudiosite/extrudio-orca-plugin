@@ -5,7 +5,7 @@
 # name = "Render in Extrudio"
 # description = "After a slice, see your print in your filament, in real scenes. You approve each send on Extrudio's page, inside OrcaSlicer."
 # author = "Extrudio"
-# version = "1.0.0"
+# version = "1.0.1"
 # ///
 """Render in Extrudio, an OrcaSlicer 2.5 plugin.
 
@@ -32,7 +32,7 @@ import urllib.request
 
 import orca
 
-VERSION = "1.0.0"
+VERSION = "1.0.1"
 # Extrudio, and its storage (the engine's signed upload URLs, on the app's own Supabase project).
 APP = "https://app.extrudio.site"
 STORAGE = "https://cpavinhltwobpnblhuym.supabase.co"
@@ -43,7 +43,6 @@ if _DEV.startswith(("http://localhost:", "http://127.0.0.1:")):
 
 HANDOFFS = APP + "/api/slicer/handoffs"
 USER_AGENT = "ExtrudioOrcaPlugin/" + VERSION
-MAX_BYTES = 200 * 1024 * 1024
 POLL_SECONDS = 1.0
 LIFETIME_SECONDS = 10 * 60
 # How long, and how often, the plugin hands the page its bridge secret as the page loads.
@@ -199,14 +198,17 @@ class RenderInExtrudio(orca.script.ScriptPluginCapabilityBase):
         except OSError:
             notify(TEXT["slice_first"])
             return True
-        if file["bytes"] > MAX_BYTES:
-            notify(TEXT["too_large"] % (MAX_BYTES // (1024 * 1024)))
-            return True
         name = (self.project_name() or "print")[:200] + ".gcode"
         try:
             status, handoff = call("", {"fileName": name, "bytes": file["bytes"]})
         except (urllib.error.URLError, OSError, ValueError):
             status, handoff = 0, {}
+        if status == 413:
+            # Over Extrudio's limit, which the server states: the plugin keeps no number of its own.
+            cap = ((handoff.get("error") or {}).get("params") or {}).get("maxBytes")
+            if isinstance(cap, int) and cap > 0:
+                notify(TEXT["too_large"] % (cap // (1024 * 1024)))
+                return True
         if status != 201:
             notify(TEXT["no_answer"])
             return True

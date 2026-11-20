@@ -37,7 +37,7 @@ Tested on macOS with OrcaSlicer 2.5.1 only.
 - Standard library only: nothing is downloaded from PyPI.
 - It ignores every message from the page.
 - Binary G-code (`.bgcode`) isn't supported: turn it off in the printer settings. Files up to
-  200 MB.
+  100 MB.
 
 To turn the notification off or on: Speed Dial → **Render in Extrudio: notifications on or off**.
 
