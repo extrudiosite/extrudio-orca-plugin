@@ -5,7 +5,7 @@
 # name = "Render in Extrudio"
 # description = "After a slice, see your print in your filament, in real scenes. You approve each send on Extrudio's page, inside OrcaSlicer."
 # author = "Extrudio"
-# version = "1.0.1"
+# version = "1.1.0"
 # ///
 """Render in Extrudio, an OrcaSlicer 2.5 plugin.
 
@@ -32,7 +32,7 @@ import urllib.request
 
 import orca
 
-VERSION = "1.0.1"
+VERSION = "1.1.0"
 # Extrudio, and its storage (the engine's signed upload URLs, on the app's own Supabase project).
 APP = "https://app.extrudio.site"
 STORAGE = "https://cpavinhltwobpnblhuym.supabase.co"
@@ -65,11 +65,28 @@ TEXT = {
 }
 
 
+def temp_dir():
+    """The temporary folder as Orca finds it: wxWidgets' GetTempDir, which reads TMPDIR, then TMP,
+    then TEMP, and falls back to the system's (Windows) or /tmp. Python's own tempfile reads TEMP
+    before TMP, so the plugin follows wx instead."""
+    for name in ("TMPDIR", "TMP", "TEMP"):
+        value = os.environ.get(name, "")
+        if value:
+            return value.rstrip("/\\")
+    if os.name == "nt":
+        import tempfile
+
+        return tempfile.gettempdir().rstrip("/\\")
+    return "/tmp"
+
+
 def slices_root():
-    # Orca 2.5.1 writes each slice's G-code under
-    # $TMPDIR/orcaslicer_<uid>/orcaslicer_model/<day>/<time>#<pid>#<n>/Metadata/.<pid>.<plate>.gcode
-    tmp = os.environ.get("TMPDIR", "/tmp").rstrip("/")
-    return "%s/orcaslicer_%d/orcaslicer_model" % (tmp, os.getuid())
+    """Where Orca 2.5 writes each slice's G-code, under
+    <temp>/orcaslicer_<uid>/orcaslicer_model/<day>/<time>#<pid>#<id>/Metadata/.<pid>.<n>.gcode
+    on macOS and Linux, and with no <uid> level on Windows (Orca's per_user_temp_dir)."""
+    if os.name == "nt":
+        return os.path.join(temp_dir(), "orcaslicer_model")
+    return "%s/orcaslicer_%d/orcaslicer_model" % (temp_dir(), os.getuid())
 
 
 def call(path, body):
@@ -303,7 +320,7 @@ class Notifications(orca.script.ScriptPluginCapabilityBase):
 class ExtrudioPlugin(orca.base):
     def register_capabilities(self):
         orca.request_permissions(
-            fs_read=[slices_root() + "/*"],
+            fs_read=[os.path.join(slices_root(), "*")],
             network=sorted({APP, STORAGE}),
             threading=True,
         )
