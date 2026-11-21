@@ -15,12 +15,12 @@ it.
 
 ## Install
 
-Tested on macOS with OrcaSlicer 2.5.1 only.
+Tested on macOS (OrcaSlicer 2.5.1) and Windows 10 (OrcaSlicer 2.5.2).
 
 1. Download `extrudio_render_any.py` from the latest release, and check its SHA-256 against the one
    on extrudio.site.
-2. Put it in a folder of its own:
-   `~/Library/Application Support/OrcaSlicer/orca_plugins/extrudio_render/`.
+2. Put it in a folder of its own, `orca_plugins/extrudio_render/`, inside OrcaSlicer's
+   configuration folder (Help → Show Configuration Folder).
 3. Restart OrcaSlicer, then tick **Render in Extrudio** in File → Plugins.
 4. Allow what it asks for.
 
