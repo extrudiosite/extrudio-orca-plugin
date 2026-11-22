@@ -36,6 +36,8 @@ Tested on macOS (OrcaSlicer 2.5.1) and Windows 10 (OrcaSlicer 2.5.2).
 - No key, no account details, no telemetry. It keeps one setting: whether to show the notification.
 - Standard library only: nothing is downloaded from PyPI.
 - It ignores every message from the page.
+- When a send fails, it writes one line to OrcaSlicer's log: the step and the error, never a code,
+  a link or a file path.
 - Binary G-code (`.bgcode`) isn't supported: turn it off in the printer settings. Files up to
   100 MB.
 

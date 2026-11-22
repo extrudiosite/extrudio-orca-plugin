@@ -56,7 +56,7 @@ BRIDGE_SECONDS = 15.0
 BRIDGE_EVERY = 0.5
 
 TEXT = {
-    "sliced": "Sliced. See it in your filament, in a real scene.",
+    "sliced": "Sliced. See it in your filament, in a studio or room scene.",
     "render": "Render in Extrudio",
     "approve": "Approve the code %s on Extrudio's page to send %s.",
     "busy": "A send to Extrudio is already under way.",
