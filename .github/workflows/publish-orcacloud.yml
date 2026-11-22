@@ -6,7 +6,7 @@
 # - It runs on a published release only, never on a pull request, so no outside code can ask for
 #   the credential.
 # - It uploads the one plugin file, as committed at the release's tag, and talks only to
-#   api.orcaslicer.com.
+#   api.orcaslicer.com. Its log shows only how the publish went, never Orca's whole answer.
 # - Its one action is pinned by full commit SHA.
 name: Publish to Orca Cloud
 
@@ -48,6 +48,10 @@ jobs:
             --form-string "metadata=$metadata" \
             -F "files=@$PLUGIN_FILE" \
             https://api.orcaslicer.com/api/v1/plugin-publish/releases)"
-          cat response.json
-          echo
-          [ "$status" = "201" ]
+          # Only what says how it went, never the answer itself: it carries the listing's
+          # sharing token, and this log is public. A failure shows its status alone.
+          echo "Orca Cloud answered $status"
+          if [ "$status" != "201" ]; then
+            exit 1
+          fi
+          jq '{id, version, public, risk_level, current_release_id}' response.json
