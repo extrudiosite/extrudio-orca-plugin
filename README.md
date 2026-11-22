@@ -1,7 +1,7 @@
 # Render in Extrudio
 
-An OrcaSlicer 2.5 plugin. After a slice, see your print in your filament, in real scenes, on
-[Extrudio](https://extrudio.site).
+An OrcaSlicer 2.5 plugin. After a slice, see your print in your filament, in studio and room scenes,
+on [Extrudio](https://extrudio.site).
 
 ## How it works
 
