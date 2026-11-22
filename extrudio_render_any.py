@@ -3,9 +3,9 @@
 #
 # [tool.orcaslicer.plugin]
 # name = "Render in Extrudio"
-# description = "After a slice, see your print in your filament, in real scenes. You approve each send on Extrudio's page, inside OrcaSlicer."
+# description = "After a slice, see your print in your filament, in studio and room scenes. You approve each send on Extrudio's page, inside OrcaSlicer."
 # author = "Extrudio"
-# version = "1.1.0"
+# version = "1.2.0"
 # ///
 """Render in Extrudio, an OrcaSlicer 2.5 plugin.
 
@@ -18,13 +18,17 @@ account, and send the sliced G-code to it.
 - Standard library only: nothing is fetched from PyPI.
 - No key, no settings but the notification switch, no telemetry.
 - It reads only the G-code Orca writes after a slice, and talks only to Extrudio and its storage.
-- It ignores every message from the page.
+- It ignores every message from the page, and opens no page but Extrudio's own.
+- When a send fails, it says why in one line on stderr, which Orca keeps in its log folder
+  (python_<date>.log): the step and a status or an error's kind, never a code, a secret, a link or
+  a path.
 
 The flow and its security review: the Extrudio app's docs/spikes/orca-plugin.md and its DECISIONS,
 2026-11-20.
 """
 import json
 import os
+import sys
 import threading
 import time
 import urllib.error
@@ -32,7 +36,7 @@ import urllib.request
 
 import orca
 
-VERSION = "1.1.0"
+VERSION = "1.2.0"
 # Extrudio, and its storage (the engine's signed upload URLs, on the app's own Supabase project).
 APP = "https://app.extrudio.site"
 STORAGE = "https://cpavinhltwobpnblhuym.supabase.co"
@@ -42,6 +46,8 @@ if _DEV.startswith(("http://localhost:", "http://127.0.0.1:")):
     APP = STORAGE = _DEV
 
 HANDOFFS = APP + "/api/slicer/handoffs"
+# The only page the panel opens: Extrudio's own, for the hand-off the plugin asked for.
+PAGE = APP + "/from-orca"
 USER_AGENT = "ExtrudioOrcaPlugin/" + VERSION
 POLL_SECONDS = 1.0
 LIFETIME_SECONDS = 10 * 60
@@ -87,6 +93,32 @@ def slices_root():
     if os.name == "nt":
         return os.path.join(temp_dir(), "orcaslicer_model")
     return "%s/orcaslicer_%d/orcaslicer_model" % (temp_dir(), os.getuid())
+
+
+def log(step, what):
+    """One line on stderr, which Orca keeps in its log folder: the step that failed and a status or
+    an error's kind. Never a code, a secret, a link or a path."""
+    try:
+        sys.stderr.write("[Render in Extrudio %s] %s: %s\n" % (VERSION, step, what))
+        sys.stderr.flush()
+    except Exception:
+        pass
+
+
+def kind(error):
+    """An error's kind, without its message, which can carry a link or a path."""
+    if isinstance(error, urllib.error.HTTPError):
+        return "HTTP %d" % error.code
+    if isinstance(error, urllib.error.URLError) and isinstance(error.reason, BaseException):
+        return "%s (%s)" % (type(error).__name__, type(error.reason).__name__)
+    return type(error).__name__
+
+
+def is_our_page(url):
+    """Extrudio's own page for a hand-off, as the app gives it: /from-orca, then ? or # or nothing."""
+    return isinstance(url, str) and (
+        url == PAGE or url.startswith(PAGE + "?") or url.startswith(PAGE + "#")
+    )
 
 
 def call(path, body):
@@ -218,7 +250,8 @@ class RenderInExtrudio(orca.script.ScriptPluginCapabilityBase):
         name = (self.project_name() or "print")[:200] + ".gcode"
         try:
             status, handoff = call("", {"fileName": name, "bytes": file["bytes"]})
-        except (urllib.error.URLError, OSError, ValueError):
+        except (urllib.error.URLError, OSError, ValueError) as error:
+            log("start", kind(error))
             status, handoff = 0, {}
         if status == 413:
             # Over Extrudio's limit, which the server states: the plugin keeps no number of its own.
@@ -227,6 +260,17 @@ class RenderInExtrudio(orca.script.ScriptPluginCapabilityBase):
                 notify(TEXT["too_large"] % (cap // (1024 * 1024)))
                 return True
         if status != 201:
+            if status:
+                log("start", "answered %d" % status)
+            notify(TEXT["no_answer"])
+            return True
+        if not all(isinstance(handoff.get(key), str) for key in ("code", "bridge", "shortCode")):
+            log("start", "an answer without its codes")
+            notify(TEXT["no_answer"])
+            return True
+        if not is_our_page(handoff.get("url")):
+            # The panel opens Extrudio's own page only, whatever an answer says.
+            log("start", "an answer with another page")
             notify(TEXT["no_answer"])
             return True
         self.busy = True
@@ -265,15 +309,21 @@ class RenderInExtrudio(orca.script.ScriptPluginCapabilityBase):
                     # Orca marshals post() onto its UI thread; the page keeps the first one.
                     self.panel.post({"bridge": bridge})
                 status, answer = call("/status", {"code": code})
-                if status != 200 or answer.get("state") == "refused":
+                if status != 200:
+                    log("status", "answered %d" % status)
+                    return
+                if answer.get("state") == "refused":
+                    log("status", "refused on Extrudio's page")
                     return
                 if answer.get("upload"):
                     upload = answer["upload"]
                     break
                 time.sleep(BRIDGE_EVERY if time.time() - started < BRIDGE_SECONDS else POLL_SECONDS)
             if upload is None:
+                log("approval", "none within %d minutes" % (LIFETIME_SECONDS // 60))
                 return
-            if not upload["url"].startswith((STORAGE + "/", APP + "/")):
+            if not str(upload.get("url", "")).startswith((STORAGE + "/", APP + "/")):
+                log("upload", "an upload link to another host")
                 return
             for attempt in range(2):
                 try:
@@ -291,13 +341,16 @@ class RenderInExtrudio(orca.script.ScriptPluginCapabilityBase):
                         with urllib.request.urlopen(request, timeout=600):
                             pass
                     break
-                except (urllib.error.URLError, OSError):
+                except (urllib.error.URLError, OSError) as error:
+                    log("upload", "try %d of 2: %s" % (attempt + 1, kind(error)))
                     if attempt == 1:
                         return
                     time.sleep(2)
-            call("/sent", {"code": code})
-        except Exception:
-            pass
+            status, _ = call("/sent", {"code": code})
+            if status != 200:
+                log("sent", "answered %d" % status)
+        except Exception as error:
+            log("send", kind(error))
         finally:
             self.busy = False
 
