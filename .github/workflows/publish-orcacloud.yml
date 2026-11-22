@@ -1,0 +1,53 @@
+# Publishes each GitHub release of this plugin to Orca Cloud, by OIDC trusted publishing: no token
+# or secret is stored anywhere. The run proves it is this repository's release workflow with a
+# short-lived credential signed by GitHub, which Orca Cloud accepts for the one plugin this
+# repository is connected to (Orca Cloud's help, "Publish from GitHub").
+#
+# - It runs on a published release only, never on a pull request, so no outside code can ask for
+#   the credential.
+# - It uploads the one plugin file, as committed at the release's tag, and talks only to
+#   api.orcaslicer.com.
+# - Its one action is pinned by full commit SHA.
+name: Publish to Orca Cloud
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    if: github.repository == 'extrudiosite/extrudio-orca-plugin'
+    runs-on: ubuntu-latest
+    steps:
+      # actions/checkout v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+
+      - name: Publish the release to Orca Cloud
+        env:
+          PLUGIN_FILE: extrudio_render_any.py
+        run: |
+          set -euo pipefail
+          # The file's SHA-256 in the run's log, to check against the release's asset and the
+          # one on extrudio.site.
+          sha256sum "$PLUGIN_FILE"
+          oidc_token="$(curl -sS --fail \
+            -H "Authorization: Bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=orcacloud" | jq -r .value)"
+          version="${GITHUB_REF_NAME#v}"
+          changelog="$(jq -r '.release.body // ""' "$GITHUB_EVENT_PATH" | head -c 4000)"
+          metadata="$(jq -cn --arg version "$version" --arg changelog "$changelog" \
+            '{version: $version} + (if $changelog == "" then {} else {changelog: $changelog} end)')"
+          status="$(curl -sS -o response.json -w '%{http_code}' \
+            -H "Authorization: Bearer $oidc_token" \
+            --form-string "metadata=$metadata" \
+            -F "files=@$PLUGIN_FILE" \
+            https://api.orcaslicer.com/api/v1/plugin-publish/releases)"
+          cat response.json
+          echo
+          [ "$status" = "201" ]
